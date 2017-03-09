@@ -1,0 +1,876 @@
+---
+title: "MALTEM Economics"
+subtitle: "A brief overview"
+author: "Laia Cirera, Joe Brew, Elisa Sicuri"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+fig_height: 5
+fig_width: 7
+output: ioslides_presentation
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(comment = NA, 
+               echo = FALSE, 
+               warning = FALSE, 
+               message = FALSE, 
+               error = TRUE, 
+               cache = FALSE)
+```
+
+```{r, results = 'hide'}
+# Packages
+library(ggplot2)
+library(cism)
+library(rworldmap)
+library(rgeos)
+library(maptools)
+library(rgdal)
+library(tidyr)
+library(RColorBrewer)
+library(dplyr)
+library(leaflet)
+library(readr)
+# Get world map
+world <- readOGR('shp/world', 'ne_110m_admin_0_countries')
+
+
+
+```
+
+## Location
+
+```{r}
+par(mfrow = c(1,3))
+cols <- ifelse(world$iso_a3 == 'MOZ', 'darkgreen', 'black')
+plot(world,
+     col = adjustcolor(cols, alpha.f = 0.5),
+     lwd = 0.1,
+     ylim = c(-5, 15),
+     xlim = c(-15, 40))
+title(main = 'Mozambique')
+
+cols <- ifelse(moz2@data$NAME_1 == 'Maputo', 'darkgreen', 'black')
+plot(moz2,
+     col = adjustcolor(cols, alpha.f = 0.5),
+     lwd = 0.1)
+title(main = 'Maputo province')
+
+
+map <- moz2[moz2@data$NAME_1 == 'Maputo',]
+cols <- ifelse(map@data$NAME_2 == 'Magude', 'darkgreen', 'black')
+
+plot(map,
+     col = adjustcolor(cols, alpha.f = 0.5),
+     lwd = 0.1)
+title(main = 'Magude district')
+par(mfrow = c(1,1))
+```
+
+## Questions
+
+```{r, fig.height = 2}
+dates <- seq(as.Date('2014-01-01'),
+             as.Date('2016-12-31'),
+             by = 1)
+df <- data_frame(date = dates,
+                 event = NA)
+
+df$event[df$date == '2015-01-01'] <- 'Census'
+df$event[df$date == '2015-08-01'] <- 'MDA'
+df$event[df$date == '2016-01-01'] <- 'MDA'
+df$event[df$date == '2016-12-15'] <- 'MDA'
+
+ggplot(data = df,
+       aes(x = date,
+           y = 1,
+           label = event)) +
+  geom_label(nudge_x = 50) +
+  theme_cism() +
+  labs(x = 'Date',
+       title = 'Intervention timeline') +
+  theme(axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank()) +
+      geom_vline(xintercept = as.numeric(df$date[!is.na(df$event)]),
+               alpha = 0.6,
+               lty = 3) 
+
+```
+
+1. How much did the intervention cost?
+
+2. How much did the intervention save in medical costs?
+
+3. How much did the intervention affect the "economic activity" (work and school productivity and performance) of the target population?
+
+4. What will the affect of the intervention be across time (in the future) and space (in other places)?
+
+## Xinavane
+
+```{r}
+map <- moz2[moz2@data$NAME_2 %in% c('Magude', 'Manhiça'),]
+cism_map_interactive(lat = -25.053186, lng = 32.799852,
+                     opacity = 0.8,
+                     popup = 'Xinavane',
+         # fspdf = moz2_fortified %>%
+         #   filter(id %in% c('Magude', 'Manhiça')),
+         point_size = 5) %>%
+  addPolygons(data = map,
+              color = c('red', 'blue'),
+              popup = c('Magude', 'Manhiça'))
+```
+
+## Xinavane
+
+```{r}
+# Get info
+load('../xinavane/data/read_in_finished.RData')
+```
+
+
+Absenteeism data spans from `r format(min(ab$date, na.rm = TRUE), '%B %d, %Y')` until `r format(max(ab$date, na.rm = TRUE), '%B %d, %Y')`. On average, there are `r ab %>% group_by(date) %>% tally %>% summarise(mean(n)) %>% as.numeric() %>% round` absences per day.
+
+
+* Number of workers: `r length(unique(workers$number))` (ever)
+  * 7,648 permanent
+  * 29,872 temporary
+* Average absenteeism rate: `r round(mean(df$absenteeism_rate), digits = 2)`% (data quality issues)
+
+
+```{r}
+temp <- ab %>%
+  group_by(date) %>%
+  tally
+ggplot(data = temp, 
+       aes(x = date, y = n)) +
+  # geom_line(alpha = 0.6) +
+  geom_point(alpha = 0.1) +
+  geom_smooth() +
+  xlab('Date') +
+  ylab('Absences') +
+  ggtitle('Crude worker absences') +
+  theme_cism()
+```
+
+
+## Xinavane
+
+
+```{r}
+
+# Make "date" be the first day of the month
+df$date <- df$month_start
+
+
+temp <- df %>%
+  group_by(date) %>%
+  summarise(n = sum(eligibles),
+            absences = sum(absences)) %>%
+  mutate( p = absences / n * 100)
+temp_g <- gather(temp, key, value, n:absences)
+temp_g$key <-
+  ifelse(temp_g$key == 'absences', 'Worker absence',
+         ifelse(temp_g$key == 'n', 'Eligible worker-day',
+                NA))
+temp_g$key <-
+  factor(temp_g$key, levels = rev(unique(temp_g$key)))
+
+# Add a line for mda
+temp_g$mda <- temp_g$date >= as.Date('2016-01-18')
+temp$mda <- temp$date >= as.Date('2016-01-18')
+# ggplot(data = temp_g,
+#        aes(x = date, y = value, group = key, fill = key)) +
+#   geom_area() +
+#   xlab('Date') +
+#   ylab('Number of eligible workers') +
+#   ggtitle('Worker scheduling')
+
+ggplot(data = temp) +
+  geom_area(aes(x = date, y = n), fill = 'darkblue', alpha = 0.7) +
+  geom_area(aes(x = date, y = absences), fill = 'darkorange', alpha = 0.6) +
+  xlab('Date') +
+  ylab('Worker-days') +
+  labs(title = 'Absences (orange) and worker-days observed (blue)',
+       subtitle = '(aggregated to monthly level)') +
+  theme_cism()
+```
+
+
+## Xinavane
+
+
+```{r}
+
+# Make an mda dataframe for labeling
+mda <- data.frame(date = as.Date('2015-10-01'),
+                  mda = 'MDA',
+                  y = 8)
+
+ggplot(data = temp,
+       aes(x = date, y = p)) +
+  geom_area(alpha = 0.6, fill = 'darkorange') +
+  xlab('Date') +
+  ylab('Absenteeism rate (%)') +
+  labs(title = 'Absenteeism rate during period of observation',
+          subtitle = '(all causes)') +
+  # geom_smooth() +
+  geom_vline(data = mda, aes(xintercept = as.numeric(date)),
+             alpha = 0.7,
+             lty = 3) +
+  geom_label(data = mda,
+             aes(x = date,
+                 y = y,
+                 label = mda)) +
+  theme_cism()
+
+```
+
+
+## Xinavane
+
+```{r}
+
+temp <- df %>%
+  group_by(date) %>%
+  summarise(n = sum(eligibles),
+            absences = sum(sick_absences)) %>%
+  mutate( p = absences / n * 100)
+temp_g <- gather(temp, key, value, n:absences)
+temp_g$key <-
+  ifelse(temp_g$key == 'absences', 'Worker absence',
+         ifelse(temp_g$key == 'n', 'Eligible worker-day',
+                NA))
+temp_g$key <-
+  factor(temp_g$key, levels = rev(unique(temp_g$key)))
+
+# Add a line for mda
+temp_g$mda <- temp_g$date >= as.Date('2016-01-18')
+temp$mda <- temp$date >= as.Date('2016-01-18')
+
+ggplot(data = temp,
+       aes(x = date, y = p)) +
+  geom_area(alpha = 0.6, fill = 'darkorange') +
+  xlab('Date') +
+  ylab('Absenteeism rate (%)') +
+  labs(title = 'Absenteeism rate during period of observation',
+          subtitle = '(marked as sickness only)') +
+  # geom_smooth() +
+  geom_vline(data = mda, aes(xintercept = as.numeric(date)),
+             alpha = 0.7,
+             lty = 3) +
+  geom_label(data = mda,
+             aes(x = date,
+                 y = y,
+                 label = mda)) +
+  theme_cism()
+```
+
+
+## Xinavane
+
+
+```{r}
+temp <- df %>%
+  group_by(date, worker_type) %>%
+  summarise(n = sum(eligibles),
+            absences = sum(absences)) %>%
+  mutate( p = absences / n * 100)
+
+# Add a line for mda
+temp$mda <- temp$date >= as.Date('2016-01-18')
+
+cols <- brewer.pal(n = length(unique(temp$worker_type)), 'Spectral')
+
+ggplot(data = temp,
+       aes(x = date, y = p)) +
+  geom_line(alpha = 0.3, aes(group = worker_type, color = worker_type)) +
+  geom_point(alpha = 0.3, aes(group = worker_type, color = worker_type)) +
+  geom_smooth(alpha = 0.1, aes(group = worker_type, color = worker_type)) +
+  xlab('Date') +
+  ylab('Absenteeism rate') +
+  scale_color_manual(values = cols,
+                     name = 'Worker type') +
+  ggtitle('Worker absenteeism by type') +
+    geom_vline(data = mda, aes(xintercept = as.numeric(date)),
+             alpha = 0.7,
+             lty = 3) +
+  geom_label(data = mda,
+             aes(x = date,
+                 y = y,
+                 label = mda)) +
+  theme_cism()
+```
+
+
+## Xinavane
+
+
+```{r}
+
+did <- 
+  df %>% 
+  filter(month_start >= '2015-04-01',
+         !is.na(location_laia)) %>%
+  mutate(mda = ifelse(month_start >= '2015-12-01', 'Post', 'Pre')) %>%
+  group_by(location_laia, mda) %>%
+  summarise(absences = sum(absences, na.rm = TRUE),
+            sick_absences = sum(sick_absences, na.rm = TRUE),
+            eligibles = sum(eligibles, na.rm = TRUE)) %>%
+  mutate(absenteeism_rate = absences / eligibles * 100,
+         sickness_absenteeism_rate = sick_absences / eligibles * 100) %>%
+  mutate(mda_num = ifelse(mda == 'Pre', 1, 2))
+
+did$mda <- factor(did$mda, levels = c('Pre', 'Post'))
+
+cols <- colorRampPalette(brewer.pal(n = 9, 'Set1'))(length(unique(did$location_laia)))
+
+cols <- colorRampPalette(brewer.pal(n = 9, 'Set1'))(length(unique(did$location_laia)))
+ggplot(data = did,
+       aes(x = mda,
+           y = absenteeism_rate,
+           color = location_laia,
+           group = location_laia)) +
+  geom_line() +
+  geom_point() +
+  geom_label(aes(label = round(absenteeism_rate, digits = 3)),
+             alpha = 0.5) +
+  theme_cism() +
+  xlab('Time') +
+  ylab('Absenteeism rate') +
+  ggtitle('All absenteeism rate: before and after',
+          'Using company-based residential location data') +
+  scale_color_manual(name = 'Location',
+                     values = cols)
+```
+
+
+## Xinavane
+
+```{r}
+
+
+# Standardize scale to start
+did <- did %>%
+  arrange(mda) %>%
+  group_by(location_laia) %>%
+  mutate(standardized = absenteeism_rate / first(absenteeism_rate) * 100)
+
+ggplot(data = did,
+       aes(x = mda,
+           y = standardized,
+           color = location_laia,
+           group = location_laia)) +
+  geom_line() +
+  geom_point() +
+  geom_label(aes(label = round(standardized, digits = 3))) +
+  theme_cism() +
+  xlab('Time') +
+  ylab('Absenteeism rate') +
+  ggtitle('Relative scaled all absenteeism rate: before and after',
+          'Using company-based residential location data') +
+  scale_color_manual(name = 'Location',
+                     values = cols)
+```
+
+## Schools
+
+```{r}
+source('../maltem_school_absenteeism/read_and_clean_all.R',chdir = TRUE)
+
+
+
+locations <- schools %>%
+  group_by(SCHOOL_NAME) %>%
+  summarise(lng = mean(lng),
+            lat = mean(lat))
+locations <- locations %>%
+  filter(SCHOOL_NAME %in% c('EPC 3 de Fevereiro',
+                            'EPC Duco',
+                            'EPC Graca Machel',
+                            'EPC Ilha Josinha Machel',
+                            'EPC Magude',
+                            'EPC Maguiguana',
+                            'EPC Maragra',
+                            'EPC Moine',
+                            'EPC Panjane',
+                            'EPC Xinvane',
+                            'EPC Simbe'))
+locations$lng[locations$SCHOOL_NAME == 'EPC Magude'] <-
+  32.799852
+locations$lat[locations$SCHOOL_NAME == 'EPC Magude'] <-
+  -25.05319
+
+map <- moz2[moz2@data$NAME_2 %in% c('Magude', 'Manhiça'),]
+cism_map_interactive(lat = locations$lat, 
+                     lng = locations$lng,
+                     opacity = 0.9,
+                     popup = locations$SCHOOL_NAME,
+         # fspdf = moz2_fortified %>%
+         #   filter(id %in% c('Magude', 'Manhiça')),
+         point_size = 5) %>%
+  addPolygons(data = map,
+              color = c('red', 'blue'),
+              popup = c('Magude', 'Manhiça'))
+```
+
+
+## Schools
+
+```{r}
+source('../maltem_schools/monitor.R', chdir = TRUE)
+df$id <- df$`Study Subject ID`
+```
+
+* Student-years: `r length(unique(df$id))`
+* Student-days: `r nrow(df)` (only counting eligible school days)
+* Number of students: `r length(unique(df$dob_E1_C1))` (and growing)
+* 9 schools
+* Average absenteeism rate of 6.2%
+
+
+
+## Schools
+
+
+```{r}
+
+#####################################
+# Visualize, etc.
+
+# Students per school
+x <- df %>%
+  group_by(school,
+           year) %>%
+  summarise(n_students = length(unique(`Study Subject ID`))) %>%
+  arrange(desc(n_students))
+
+ggplot(data = x,
+       aes(x = school,
+           y = n_students)) +
+  geom_bar(stat = 'identity',
+           alpha = 0.6,
+           fill = 'darkblue') +
+  facet_wrap(~year) +
+  theme_cism() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  geom_label(aes(label = n_students)) +
+  xlab('School') +
+  ylab('Students') +
+  ggtitle('Number of students observed by year/school')
+```
+
+## Schools
+
+```{r}
+
+# Absenteeism by date by intervention
+x <- df %>%
+  group_by(district, date) %>%
+  summarise(absences = length(which(absent)),
+            eligibles = n()) %>%
+  ungroup %>%
+  mutate(absenteeism_rate = absences / eligibles * 100)
+
+library(RColorBrewer)
+cols <- colorRampPalette(brewer.pal(n = 9, name = 'Set1'))(length(unique(x$district)))
+ggplot(data = x,
+       aes(x = date,
+           y = absenteeism_rate,
+           group = district,
+           color = district)) +
+  geom_point(alpha = 0.3,
+             aes(size = eligibles)) +
+  geom_smooth() +
+  theme_cism() +
+  scale_color_manual(name = 'District',
+                     values = cols) +
+  ylim(0, 25)
+```
+
+## Schools
+
+
+```{r}
+# Monthly absenteeism in both districts
+x <- df %>%
+  group_by(district, 
+           date = month) %>%
+  summarise(absences = length(which(absent)),
+            eligibles = n()) %>%
+  ungroup %>%
+  mutate(absenteeism_rate = absences / eligibles * 100)
+
+ggplot(data = x,
+       aes(x = date,
+           y = absenteeism_rate,
+           group = district,
+           fill = district)) +
+  geom_bar(stat = 'identity',
+           pos = 'dodge',
+           alpha = 0.6) +
+  theme_cism() +
+  labs(title = 'Absenteeism rate') +
+  scale_fill_manual(name = 'District',
+                    values = cols) 
+```
+
+## Schools
+
+
+```{r}
+# Monthly absenteeism
+x <- df %>%
+  group_by(district, date = month) %>%
+  summarise(absences = length(which(absent)),
+            eligibles = n(),
+            `Sample size` = length(unique(`Study Subject ID`))) %>%
+  ungroup %>%
+  mutate(absenteeism_rate = absences / eligibles * 100) 
+
+ggplot(data = x,
+       aes(x = date,
+           y = absenteeism_rate)) +
+  geom_bar(stat = 'identity',
+           fill = 'darkorange',
+           alpha = 0.6) +
+  theme_cism() +
+  labs(title = 'Absenteeism by month') +
+  facet_wrap(~district, ncol = 2) +
+  geom_hline(yintercept = mean(x$absenteeism_rate), lty = 2, alpha = 0.5)
+```
+
+
+## Schools
+
+
+
+```{r}
+
+# Lines instead of bars
+g <- ggplot(data = x,
+       aes(x = date,
+           y = absenteeism_rate,
+           color = district)) +
+  geom_line(alpha = 0.5) +
+  stat_smooth(aes(weight = `Sample size`), fill = NA) +
+  # geom_point()
+  geom_point(aes(size = `Sample size`),
+             alpha = 0.3) +
+  theme_cism() +
+  labs(title = 'Absenteeism by month') +
+  geom_hline(yintercept = mean(x$absenteeism_rate), lty = 2, alpha = 0.5) +
+  scale_color_manual(name = 'District',
+                     values = cols) +
+  xlab('Date') +
+  ylab('Monthly absenteeism rate') +
+  geom_vline(xintercept = '2016-10-01')
+g
+```
+
+
+## Schools
+
+
+
+```{r}
+# Examine by term
+x <- df %>%
+  group_by(district, year, term) %>%
+  summarise(absences = length(which(absent)),
+            eligibles = n(),
+            `Sample size` = length(unique(`Study Subject ID`))) %>%
+  ungroup %>%
+  mutate(absenteeism_rate = absences / eligibles * 100)  %>%
+  filter(!is.na(term)) %>%
+  mutate(year_term = paste0(year, '-', term))
+
+ggplot(data = x,
+       aes(x = year_term,
+           y = absenteeism_rate,
+           color = district,
+           group = district)) +
+  geom_point() +
+  geom_line()  +
+  geom_vline(xintercept = 3.1, lty = 2, alpha = 0.6) +
+  theme_cism() +
+  xlab('Year-term') +
+  ylab('Absenteeism rate') +
+  scale_color_manual(name = 'District',
+                     values = cols)
+```
+
+
+## Schools
+
+
+
+```{r}
+# Aggregate by year
+x <- df %>%
+  group_by(date = year, 
+           district) %>%
+  summarise(absences = length(which(absent)),
+            eligibles = n()) %>%
+  ungroup %>%
+  mutate(absenteeism_rate = absences / eligibles * 100) 
+
+
+ggplot(data = x,
+       aes(x = factor(date),
+           y = absenteeism_rate,
+           color = district,
+           group = district)) +
+  geom_line() +
+  geom_point() +
+  theme_cism() +
+  scale_color_manual(name = 'District',
+                     values = cols) +
+  ylim(0, max(x$absenteeism_rate)) +
+  xlab('Date') +
+  ylab('Absenteeism rate')
+```
+
+## Effectiveness
+
+### Rainfall data
+
+```{r}
+source('../maltem_cost_effectiveness/master.R', chdir = TRUE)
+
+ggplot(data = df,
+       aes(x = date,
+           y = precipitation)) +
+  geom_line(alpha = 0.8,
+            color = 'darkgreen') +
+  facet_wrap(~district) +
+  labs(x = 'Date',
+       y = 'Milimeters',
+       title = 'Rainfall',
+       subtitle = 'Province of Maputo') +
+  theme_cism()
+```
+
+
+## Effectiveness
+
+### Rainfall data
+
+```{r}
+
+cols <- colorRampPalette(brewer.pal(n = 9, 'Spectral'))(length(unique(df$year)))
+ggplot(data = df %>%
+         mutate(day_of_year = as.numeric(format(date, '%j'))),
+       aes(x = day_of_year,
+           y = precipitation)) +
+  geom_line(alpha = 0.8,
+            aes(color = factor(year))) +
+  facet_wrap(~district) +
+  labs(x = 'Day of year',
+       y = 'Milimeters',
+       title = 'Rainfall',
+       subtitle = 'Province of Maputo') +
+  theme_bw() +
+  scale_color_manual(name = 'Year',
+                     values = cols)
+
+```
+
+
+## Effectiveness
+
+### Rainfall data
+```{r}
+
+# Plot malaria risk
+ggplot(data = df,
+       aes(x = date,
+           y = malaria_risk)) +
+  geom_line(alpha = 0.3) +
+  facet_wrap(~district) +
+  xlab('Date') +
+  ylab('Malaria risk') +
+  ggtitle('Estimated climatological risk of malaria',
+          'By district') +
+  geom_line(data = df %>%
+              group_by(district) %>%
+              mutate(p = p / max(p)) %>%
+              ungroup,
+            aes(x = date,
+                y = p),
+            color = 'red',
+            alpha = 0.5)
+
+
+# Effectiveness: 
+# BES evolution by district
+# OPD evolution (Manhiça and Magude)
+
+```
+
+## Effectiveness
+
+### IRS data
+
+```{r}
+# IRS coverage
+x <- df %>%
+  group_by(district, year) %>%
+  summarise(irs_coverage = first(irs_coverage))
+
+ggplot(data = x,
+       aes(x = year,
+           y = irs_coverage)) +
+  geom_bar(stat = 'identity',
+           pos = 'dodge',
+           fill = 'darkorange', alpha = 0.6) +
+  facet_wrap(~district) +
+  theme_cism() +
+  xlab('Year') +
+  ylab('IRS coverage (%) of population') +
+  geom_label(aes(label = paste0(round(irs_coverage, digits = 1), '%')),
+             size = 3,
+             alpha = 0.6) +
+  labs(title = 'IRS coverage in Maputo province by district',
+       subtitle = 'Number of people considered protected as % of total population')
+
+```
+
+## Effectiveness
+
+### Outcomes
+
+```{r}
+ggplot(data = df,
+       aes(x = date,
+           y = pk)) +
+  geom_line(aes(color = age)) +
+  facet_wrap(~district) +
+  labs(x = 'Date',
+       y = 'Incidence (cases per 1,000)',
+       title = 'Malaria incidence over time by district',
+       subtitle = 'Cases per 1,000 inhabitants') +
+  scale_color_manual(name = 'Age',
+                     values = c('darkgreen', 'darkorange')) +
+  theme_cism()
+```
+
+## Effectiveness
+
+### Outcomes
+
+```{r}
+x <- df %>%
+  mutate(magude = ifelse(district == 'MAGUDE', 'Magude', 'Not Magude')) %>%
+    filter(district != 'NAMAACHA') %>%
+  # filter(district != 'MANHICA') %>%
+  group_by(date,
+           # year, month,
+           # age, 
+           magude) %>%
+  summarise(#pk = weighted.mean(pk, w = population),
+            cases = sum(cases),
+            pop = sum(population),
+            precip = mean(precip)) %>%
+  ungroup %>%
+  mutate(p = cases / pop * 1000) #%>%
+  # mutate(date = as.Date(paste0(year, '-',
+  #                              '06',
+  #                              # month, 
+  #                              '-01')))# %>%
+  # filter(date >= '2014-07-01')
+
+library(ggthemes)
+library(cism)
+ggplot(data = x,
+       aes(x = date,
+           color = magude,
+           y = p)) +
+  geom_line(alpha = 0.6) +
+  # geom_smooth() +
+  # facet_wrap(~age, ncol = 1) +
+  # theme_bw()  +
+  scale_color_manual(name = '',
+                     values = c('blue', 'red')) +
+  # theme_fivethirtyeight() +
+  geom_vline(xintercept = as.numeric(as.Date(paste0(2010:2017, '-12-31'))),
+             lty = 2, alpha = 0.2) +
+  geom_vline(xintercept = as.numeric(as.Date(paste0('2015-03-15'))),
+             color = 'darkgreen') +
+  labs(x = 'Week',
+       y = 'Weekly incidence per 1,000',
+       title = 'Weekly clinical malaria',
+       subtitle = 'Province of Maputo, all ages, weekly') +
+  geom_label(data = data_frame(x = as.Date(paste0('2015-03-15')),
+                               y = 15,
+                               label = 'MDA'),
+             aes(x = x,
+                 y = y,
+                 label = label),
+             color = 'black') +
+  theme_cism()
+```
+
+
+## Effectiveness
+
+### Outcomes
+
+
+```{r}
+ggplot(data = x %>%
+         filter(date >= '2013-01-01'),
+       aes(x = date,
+           color = magude,
+           y = p)) +
+  geom_line(alpha = 0.6) +
+  # geom_smooth() +
+  # facet_wrap(~age, ncol = 1) +
+  # theme_bw()  +
+  scale_color_manual(name = '',
+                     values = c('blue', 'red')) +
+  # theme_fivethirtyeight() +
+  geom_vline(xintercept = as.numeric(as.Date(paste0(2010:2017, '-12-31'))),
+             lty = 2, alpha = 0.2) +
+  geom_vline(xintercept = as.numeric(as.Date(paste0('2015-03-15'))),
+             color = 'darkgreen') +
+  labs(x = 'Week',
+       y = 'Weekly incidence per 1,000',
+       title = 'Zoom-in: Weekly clinical malaria',
+       subtitle = 'Province of Maputo, all ages, weekly') +
+  geom_label(data = data_frame(x = as.Date(paste0('2015-03-15')),
+                               y = 15,
+                               label = 'MDA'),
+             aes(x = x,
+                 y = y,
+                 label = label),
+             color = 'black') +
+  theme_cism()
+```
+
+## Effectiveness
+
+### Validation with OPD data
+
+```{r}
+source('../bes_vs_opd/compare.R', chdir = TRUE)
+
+ggplot(data = master,
+       aes(x = date,
+           y = p,
+           group = group,
+           color = group)) +
+  geom_point(alpha = 0.6) +
+  geom_line(alpha = 0.3) +
+  scale_color_manual(name = 'Source',
+                     values = c('darkred',
+                                'darkorange',
+                                'darkgreen',
+                                'green')) +
+  facet_wrap(~district, nrow = 2) +
+  theme_cism() +
+  ylab('Percent of 2012 average') +
+  xlab('Date') +
+  ggtitle('BES and OPD data',
+          'Fellow travelers')
+```
